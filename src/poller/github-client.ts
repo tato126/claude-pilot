@@ -148,4 +148,40 @@ export class GitHubClient {
 
     return parseInt(match[1], 10);
   }
+
+  async mergePullRequest(
+    prNumber: number,
+    mergeMethod: "merge" | "squash" | "rebase" = "squash"
+  ): Promise<void> {
+    const args = [
+      "pr",
+      "merge",
+      String(prNumber),
+      "--repo",
+      this.repo,
+      `--${mergeMethod}`,
+      "--delete-branch",
+    ];
+
+    try {
+      await execFile("gh", args);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      throw new Error(`gh pr merge failed for PR #${prNumber}: ${msg}`);
+    }
+  }
+
+  async getPullRequestDiff(prNumber: number): Promise<string> {
+    const args = ["pr", "diff", String(prNumber), "--repo", this.repo];
+
+    let stdout: string;
+    try {
+      ({ stdout } = await execFile("gh", args));
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      throw new Error(`gh pr diff failed for PR #${prNumber}: ${msg}`);
+    }
+
+    return stdout;
+  }
 }

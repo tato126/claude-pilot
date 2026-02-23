@@ -94,10 +94,16 @@ export class CodeExecutor {
       this.taskRepo.updatePrNumber(task.id, prNumber);
       this.taskRepo.updateStatus(task.id, "PR_CREATED");
 
-      // 10. Post success comment on the issue
       const prUrl = `https://github.com/${this.repoConfig.name}/pull/${prNumber}`;
+
+      // 10. Auto-merge PR
+      console.log(`[CodeExecutor] Merging PR #${prNumber}`);
+      await this.github.mergePullRequest(prNumber, "squash");
+      this.taskRepo.updateStatus(task.id, "COMPLETED");
+
+      // 11. Post success comment on the issue
       const successComment = [
-        `✅ PR #${prNumber} created: ${prUrl}`,
+        `✅ PR #${prNumber} merged: ${prUrl}`,
         ``,
         `<!-- claude-pilot -->`,
       ].join("\n");
@@ -108,7 +114,7 @@ export class CodeExecutor {
       await this.github.createIssueComment(issueNumber, successComment);
 
       console.log(
-        `[CodeExecutor] Done — issue #${issueNumber} -> PR #${prNumber} (${prUrl})`
+        `[CodeExecutor] Done — issue #${issueNumber} -> PR #${prNumber} merged (${prUrl})`
       );
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
