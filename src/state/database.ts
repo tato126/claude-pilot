@@ -23,6 +23,10 @@ export function initDatabase(dbPath: string): Database.Database {
       repo TEXT PRIMARY KEY,
       last_poll_at TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS processed_comments (
+      comment_id INTEGER PRIMARY KEY
+    );
   `);
 
   return db;

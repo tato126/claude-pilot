@@ -22,4 +22,17 @@ export class PollStateRepository {
       )
       .run(repo, timestamp);
   }
+
+  isCommentProcessed(commentId: number): boolean {
+    const row = this.db
+      .prepare(`SELECT 1 FROM processed_comments WHERE comment_id = ?`)
+      .get(commentId);
+    return !!row;
+  }
+
+  markCommentProcessed(commentId: number): void {
+    this.db
+      .prepare(`INSERT OR IGNORE INTO processed_comments (comment_id) VALUES (?)`)
+      .run(commentId);
+  }
 }

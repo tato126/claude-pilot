@@ -21,6 +21,15 @@ export class GitOperations {
       );
     }
 
+    // 기존 로컬 브랜치가 있으면 삭제 후 재생성
+    try {
+      await execFile("git", ["branch", "-D", branchName], {
+        cwd: this.repoPath,
+      });
+    } catch {
+      // 브랜치가 없으면 무시
+    }
+
     try {
       await execFile(
         "git",
