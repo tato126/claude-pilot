@@ -1,0 +1,20 @@
+polling:
+  interval_seconds: 30
+
+triggers:
+  mention: "@claude"
+  approve: "/approve"
+  reject: "/reject"
+  abort: "/abort"
+
+repos:
+  - name: "tadpolehub/tadpole-gateway"
+    local_path: "/Users/chan/workspace/tadpole-gateway"
+    base_branch: "v0.3.0"
+    allowed_authors:
+      - "chan01206"
+
+claude:
+  plan_model: "sonnet"
+  execute_model: "opus"
+  review_model: "sonnet"
