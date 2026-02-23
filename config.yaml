@@ -8,11 +8,11 @@ triggers:
   abort: "/abort"
 
 repos:
-  - name: "tadpolehub/tadpole-gateway"
-    local_path: "/Users/chan/workspace/tadpole-gateway"
-    base_branch: "v0.3.0"
+  - name: "tato126/claude-pilot"
+    local_path: "/Users/chan/workspace/claude-pilot"
+    base_branch: "master"
     allowed_authors:
-      - "chan01206"
+      - "tato126"
 
 claude:
   plan_model: "sonnet"
