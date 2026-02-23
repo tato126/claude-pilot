@@ -45,12 +45,10 @@ export class Poller {
     let latestTimestamp = lastPollAt;
 
     for (const { issueNumber, comment } of commentItems) {
-      // 가장 최신 댓글의 created_at을 poll_state로 사용
       if (!latestTimestamp || comment.created_at > latestTimestamp) {
         latestTimestamp = comment.created_at;
       }
 
-      // 이미 처리한 댓글은 건너뛰기
       if (this.pollStateRepo.isCommentProcessed(comment.id)) {
         continue;
       }
@@ -68,7 +66,6 @@ export class Poller {
       }
     }
 
-    // 댓글의 실제 created_at 기준으로 poll_state 업데이트
     if (latestTimestamp) {
       this.pollStateRepo.updateLastPollAt(repo.name, latestTimestamp);
     }
@@ -80,10 +77,6 @@ export class Poller {
     return events;
   }
 
-  /**
-   * gh api repos/{owner}/{repo}/issues/comments 로 레포 전체 이슈 댓글을 가져온다.
-   * sort=created&direction=asc로 오래된 것부터 가져와 누락 방지.
-   */
   private async fetchIssueComments(
     repoName: string,
     since: string | null
@@ -108,7 +101,6 @@ export class Poller {
       return [];
     }
 
-    // issue_url 형식: https://api.github.com/repos/{owner}/{repo}/issues/{number}
     return parsed
       .map((raw: Record<string, unknown>) => {
         const issueUrl = raw.issue_url as string;
