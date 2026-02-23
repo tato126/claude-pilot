@@ -45,7 +45,7 @@ async function main(): Promise<void> {
   const reviewClaude = new ClaudeCliRunner({ model: config.claude.review_model });
 
   const planGenerator = new PlanGenerator(github, planClaude, taskRepo, repoConfig);
-  const codeExecutor = new CodeExecutor(github, executeClaude, taskRepo, git, repoConfig);
+  const codeExecutor = new CodeExecutor(github, executeClaude, taskRepo, git, repoConfig, config.claude);
   const _prReviewer = new PrReviewer(github, reviewClaude, taskRepo, repoConfig);
 
   // 4. 라우터 + 폴러 구성

@@ -29,18 +29,33 @@ export class ClaudeCliRunner {
     return this.runClaude(args, cwd, PLAN_TIMEOUT_MS);
   }
 
-  runExecute(prompt: string, cwd: string): Promise<string> {
+  runExecute(prompt: string, cwd: string, model?: string): Promise<string> {
     const args = [
       "-p",
       prompt,
       "--model",
-      this.model,
+      model ?? this.model,
       "--dangerously-skip-permissions",
       "--output-format",
       "text",
     ];
 
     return this.runClaude(args, cwd, EXECUTE_TIMEOUT_MS);
+  }
+
+  runVerify(prompt: string, cwd: string, model: string): Promise<string> {
+    const args = [
+      "-p",
+      prompt,
+      "--model",
+      model,
+      "--allowedTools",
+      "Read,Glob,Grep",
+      "--output-format",
+      "text",
+    ];
+
+    return this.runClaude(args, cwd, PLAN_TIMEOUT_MS);
   }
 
   private runClaude(

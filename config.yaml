@@ -13,8 +13,12 @@ repos:
     base_branch: "master"
     allowed_authors:
       - "tato126"
+    verify_commands:
+      - "npx tsc --noEmit"
 
 claude:
   plan_model: "sonnet"
-  execute_model: "opus"
+  execute_model: "sonnet"
+  verify_model: "opus"
   review_model: "sonnet"
+  max_verify_retries: 3
