@@ -74,12 +74,11 @@ export class Poller {
     repoName: string,
     since: string | null
   ): Promise<Array<{ issueNumber: number; comment: GitHubComment }>> {
-    const endpoint = `repos/${repoName}/issues/comments`;
-    const args = ["api", endpoint, "--paginate"];
+    let endpoint = `repos/${repoName}/issues/comments?per_page=30&sort=created&direction=desc`;
     if (since) {
-      args.push("-f", `since=${since}`);
+      endpoint += `&since=${encodeURIComponent(since)}`;
     }
-    args.push("-f", "per_page=30", "-f", "sort=created", "-f", "direction=desc");
+    const args = ["api", endpoint, "--paginate"];
 
     let stdout: string;
     try {

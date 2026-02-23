@@ -49,9 +49,13 @@ export class ClaudeCliRunner {
     timeoutMs: number,
   ): Promise<string> {
     return new Promise((resolve, reject) => {
+      const env = { ...process.env };
+      delete env.CLAUDECODE;
+
       const child = spawn("claude", args, {
         cwd,
         stdio: ["ignore", "pipe", "pipe"],
+        env,
       });
 
       let stdout = "";
