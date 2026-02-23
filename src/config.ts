@@ -127,11 +127,17 @@ function validateReposConfig(config: unknown): RepoConfig[] {
       throw new Error(`repos[${index}].allowed_authors must contain only non-empty strings`);
     }
 
+    const verifyCommands = repoObj.verify_commands;
+    if (verifyCommands !== undefined && !Array.isArray(verifyCommands)) {
+      throw new Error(`repos[${index}].verify_commands must be an array if provided`);
+    }
+
     return {
       name: repoObj.name as string,
       local_path: repoObj.local_path as string,
       base_branch: repoObj.base_branch as string,
       allowed_authors: repoObj.allowed_authors as string[],
+      verify_commands: (verifyCommands as string[] | undefined) ?? [],
     };
   });
 }
@@ -142,7 +148,7 @@ function validateClaudeConfig(config: unknown): ClaudeConfig {
   }
 
   const claudeObj = config as Record<string, unknown>;
-  const required = ['plan_model', 'execute_model', 'review_model'] as const;
+  const required = ['plan_model', 'execute_model', 'verify_model', 'review_model'] as const;
 
   for (const field of required) {
     if (typeof claudeObj[field] !== 'string' || !claudeObj[field]) {
@@ -150,9 +156,16 @@ function validateClaudeConfig(config: unknown): ClaudeConfig {
     }
   }
 
+  const maxRetries = claudeObj.max_verify_retries;
+  if (maxRetries !== undefined && (typeof maxRetries !== 'number' || maxRetries < 0)) {
+    throw new Error('claude.max_verify_retries must be a non-negative number');
+  }
+
   return {
     plan_model: claudeObj.plan_model as string,
     execute_model: claudeObj.execute_model as string,
+    verify_model: claudeObj.verify_model as string,
     review_model: claudeObj.review_model as string,
+    max_verify_retries: (maxRetries as number | undefined) ?? 3,
   };
 }

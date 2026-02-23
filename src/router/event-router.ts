@@ -68,9 +68,14 @@ export class EventRouter {
       return;
     }
 
-    if (task.status !== "PLAN_PENDING") {
-      console.log(`[Router] Warning: approve event received but task status is ${task.status}, expected PLAN_PENDING. Skipping.`);
+    if (task.status !== "PLAN_PENDING" && task.status !== "FAILED") {
+      console.log(`[Router] Warning: approve event received but task status is ${task.status}, expected PLAN_PENDING or FAILED. Skipping.`);
       return;
+    }
+
+    if (task.status === "FAILED") {
+      this.taskRepo.resetRetry(task.id);
+      console.log(`[Router] Retrying failed task: id=${task.id} — retry count reset`);
     }
 
     this.taskRepo.updateStatus(task.id, "EXECUTING");

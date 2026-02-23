@@ -85,4 +85,34 @@ export class TaskRepository {
       .prepare(`SELECT * FROM tasks WHERE status != 'COMPLETED'`)
       .all() as TaskRecord[];
   }
+
+  incrementRetryCount(id: number): void {
+    this.db
+      .prepare(
+        `UPDATE tasks SET retry_count = retry_count + 1, updated_at = datetime('now') WHERE id = ?`
+      )
+      .run(id);
+  }
+
+  updateLastError(id: number, error: string): void {
+    this.db
+      .prepare(
+        `UPDATE tasks SET last_error = ?, updated_at = datetime('now') WHERE id = ?`
+      )
+      .run(error, id);
+  }
+
+  resetRetry(id: number): void {
+    this.db
+      .prepare(
+        `UPDATE tasks SET retry_count = 0, last_error = NULL, updated_at = datetime('now') WHERE id = ?`
+      )
+      .run(id);
+  }
+
+  findFailed(): TaskRecord[] {
+    return this.db
+      .prepare(`SELECT * FROM tasks WHERE status = 'FAILED'`)
+      .all() as TaskRecord[];
+  }
 }

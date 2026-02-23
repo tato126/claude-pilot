@@ -1,30 +1,46 @@
+import { join } from "node:path";
 import type { PilotEvent } from "../types/events.js";
 import type { TaskRecord } from "../types/state.js";
-import type { RepoConfig } from "../types/config.js";
+import type { RepoConfig, ClaudeConfig } from "../types/config.js";
 import type { GitHubClient } from "../poller/github-client.js";
 import type { ClaudeCliRunner } from "../claude/cli-runner.js";
 import type { TaskRepository } from "../state/task-repository.js";
 import type { GitOperations } from "../git/git-operations.js";
+import { VerificationRunner } from "./verification-runner.js";
 
 export class CodeExecutor {
+  private verifier: VerificationRunner;
+
   constructor(
     private github: GitHubClient,
     private claude: ClaudeCliRunner,
     private taskRepo: TaskRepository,
     private git: GitOperations,
-    private repoConfig: RepoConfig
-  ) {}
+    private repoConfig: RepoConfig,
+    private claudeConfig: ClaudeConfig
+  ) {
+    this.verifier = new VerificationRunner(claudeConfig, claude);
+  }
 
   async execute(event: PilotEvent, task: TaskRecord): Promise<void> {
     const { issue_number: issueNumber } = event;
     const branchName = `claude-pilot/issue-${issueNumber}`;
+    const worktreePath = join(
+      this.repoConfig.local_path,
+      ".worktrees",
+      `issue-${issueNumber}`
+    );
 
     try {
-      // 1. Create branch from base
+      // 1. Create worktree from base branch
       console.log(
-        `[CodeExecutor] Creating branch '${branchName}' from '${this.repoConfig.base_branch}'`
+        `[CodeExecutor] Creating worktree at '${worktreePath}' with branch '${branchName}'`
       );
-      await this.git.createBranch(branchName, this.repoConfig.base_branch);
+      await this.git.createWorktree(
+        worktreePath,
+        branchName,
+        this.repoConfig.base_branch
+      );
 
       // 2. Record branch name in task
       this.taskRepo.updateBranch(task.id, branchName);
@@ -52,22 +68,48 @@ export class CodeExecutor {
       console.log(
         `[CodeExecutor] Running Claude CLI to implement issue #${issueNumber}`
       );
-      await this.claude.runExecute(prompt, this.repoConfig.local_path);
+      await this.claude.runExecute(prompt, worktreePath);
 
       // 6. Commit any remaining uncommitted changes
-      const hasUncommitted = await this.git.hasChanges();
+      const hasUncommitted = await this.git.hasChangesIn(worktreePath);
       if (hasUncommitted) {
         console.log(
           `[CodeExecutor] Committing uncommitted changes for issue #${issueNumber}`
         );
-        await this.git.commitAll(`feat: implement issue #${issueNumber}`);
+        await this.git.commitAllIn(
+          worktreePath,
+          `feat: implement issue #${issueNumber}`
+        );
       }
 
-      // 7. Push branch to remote
-      console.log(`[CodeExecutor] Pushing branch '${branchName}'`);
-      await this.git.push(branchName);
+      // 7. Verification loop
+      const verifyCommands = this.repoConfig.verify_commands ?? [];
+      if (verifyCommands.length > 0) {
+        this.taskRepo.updateStatus(task.id, "VERIFYING");
+        console.log(
+          `[CodeExecutor] Starting verification loop for issue #${issueNumber}`
+        );
 
-      // 8. Create pull request
+        const issueContext = `Issue #${issueNumber}: ${issue.title}\n${issue.body ?? ""}`;
+        const verified = await this.runVerificationLoop(
+          task,
+          worktreePath,
+          verifyCommands,
+          issueContext
+        );
+
+        if (!verified) {
+          // Retries exhausted → FAILED
+          await this.handleVerificationFailed(task, issueNumber, worktreePath);
+          return;
+        }
+      }
+
+      // 8. Push branch from worktree
+      console.log(`[CodeExecutor] Pushing branch '${branchName}'`);
+      await this.git.pushFrom(worktreePath, branchName);
+
+      // 9. Create pull request
       const rawTitle = issue.title ?? `Issue #${issueNumber}`;
       const prTitle =
         rawTitle.length > 70 ? rawTitle.slice(0, 70) : rawTitle;
@@ -90,18 +132,18 @@ export class CodeExecutor {
         prBody
       );
 
-      // 9. Update task state
+      // 10. Update task state
       this.taskRepo.updatePrNumber(task.id, prNumber);
       this.taskRepo.updateStatus(task.id, "PR_CREATED");
 
       const prUrl = `https://github.com/${this.repoConfig.name}/pull/${prNumber}`;
 
-      // 10. Auto-merge PR
+      // 11. Auto-merge PR
       console.log(`[CodeExecutor] Merging PR #${prNumber}`);
       await this.github.mergePullRequest(prNumber, "squash");
       this.taskRepo.updateStatus(task.id, "COMPLETED");
 
-      // 11. Post success comment on the issue
+      // 12. Post success comment on the issue
       const successComment = [
         `✅ PR #${prNumber} merged: ${prUrl}`,
         ``,
@@ -112,6 +154,9 @@ export class CodeExecutor {
         `[CodeExecutor] Posting success comment on issue #${issueNumber}`
       );
       await this.github.createIssueComment(issueNumber, successComment);
+
+      // 13. Clean up worktree
+      await this.cleanupWorktree(worktreePath);
 
       console.log(
         `[CodeExecutor] Done — issue #${issueNumber} -> PR #${prNumber} merged (${prUrl})`
@@ -137,13 +182,138 @@ export class CodeExecutor {
         await this.github.createIssueComment(issueNumber, errorComment);
       } catch (commentErr: unknown) {
         const commentMsg =
-          commentErr instanceof Error ? commentErr.message : String(commentErr);
+          commentErr instanceof Error
+            ? commentErr.message
+            : String(commentErr);
         console.log(
           `[CodeExecutor] Failed to post error comment on issue #${issueNumber}: ${commentMsg}`
         );
       }
 
+      await this.cleanupWorktree(worktreePath);
       throw err;
+    }
+  }
+
+  private async runVerificationLoop(
+    task: TaskRecord,
+    worktreePath: string,
+    commands: string[],
+    issueContext: string
+  ): Promise<boolean> {
+    const maxRetries = this.claudeConfig.max_verify_retries;
+
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      console.log(
+        `[CodeExecutor] Verification attempt ${attempt + 1}/${maxRetries + 1}`
+      );
+
+      const result = await this.verifier.runVerifyCommands(
+        worktreePath,
+        commands
+      );
+
+      if (result.success) {
+        console.log(`[CodeExecutor] Verification passed`);
+        return true;
+      }
+
+      console.log(
+        `[CodeExecutor] Verification failed with ${result.errors.length} error(s)`
+      );
+      this.taskRepo.updateLastError(
+        task.id,
+        result.errors.join("\n---\n")
+      );
+
+      // Last attempt — no more retries
+      if (attempt >= maxRetries) {
+        break;
+      }
+
+      // Analyze errors with opus and apply fix with sonnet
+      this.taskRepo.incrementRetryCount(task.id);
+
+      console.log(
+        `[CodeExecutor] Analyzing errors with ${this.claudeConfig.verify_model}`
+      );
+      const fixInstructions = await this.verifier.analyzeErrors(
+        result.errors,
+        issueContext
+      );
+
+      console.log(
+        `[CodeExecutor] Applying fix with ${this.claudeConfig.execute_model}`
+      );
+      this.taskRepo.updateStatus(task.id, "EXECUTING");
+      await this.verifier.applyFix(worktreePath, fixInstructions);
+
+      // Commit fix
+      const hasChanges = await this.git.hasChangesIn(worktreePath);
+      if (hasChanges) {
+        await this.git.commitAllIn(
+          worktreePath,
+          `fix: verification retry ${attempt + 1}`
+        );
+      }
+
+      this.taskRepo.updateStatus(task.id, "VERIFYING");
+    }
+
+    return false;
+  }
+
+  private async handleVerificationFailed(
+    task: TaskRecord,
+    issueNumber: number,
+    worktreePath: string
+  ): Promise<void> {
+    this.taskRepo.updateStatus(task.id, "FAILED");
+    console.log(
+      `[CodeExecutor] Verification failed after all retries for issue #${issueNumber}`
+    );
+
+    const lastError = this.taskRepo.findByIssue(
+      this.repoConfig.name,
+      issueNumber
+    )?.last_error;
+
+    const failComment = [
+      `❌ Verification failed for issue #${issueNumber} after ${this.claudeConfig.max_verify_retries} retries.`,
+      ``,
+      `Use \`/approve\` to retry.`,
+      ``,
+      `**Last error:**`,
+      `\`\`\``,
+      lastError ?? "Unknown error",
+      `\`\`\``,
+      ``,
+      `<!-- claude-pilot -->`,
+    ].join("\n");
+
+    try {
+      await this.github.createIssueComment(issueNumber, failComment);
+    } catch (commentErr: unknown) {
+      const commentMsg =
+        commentErr instanceof Error
+          ? commentErr.message
+          : String(commentErr);
+      console.log(
+        `[CodeExecutor] Failed to post failure comment: ${commentMsg}`
+      );
+    }
+
+    await this.cleanupWorktree(worktreePath);
+  }
+
+  private async cleanupWorktree(worktreePath: string): Promise<void> {
+    try {
+      await this.git.removeWorktree(worktreePath);
+      console.log(`[CodeExecutor] Cleaned up worktree at '${worktreePath}'`);
+    } catch (err) {
+      console.log(
+        `[CodeExecutor] Warning: failed to clean up worktree: ${(err as Error).message}`
+      );
     }
   }
 }
