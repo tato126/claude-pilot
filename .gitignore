@@ -4,3 +4,10 @@ data/
 *.db
 *.db-journal
 .env
+
+# OS temporary files
+.DS_Store
+._*
+Thumbs.db
+desktop.ini
+*~
